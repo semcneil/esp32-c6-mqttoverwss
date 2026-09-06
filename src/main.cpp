@@ -13,6 +13,8 @@
 
 #include "secrets.h"
 
+#define STATUS_DELAY 300000  // delay between sending status messages
+
 // Allocate an 8-byte array for the EUI-64 / IEEE 802.15.4 ID
 uint8_t mac8[8];
 String globalDeviceId = "ID NOT SET";
@@ -165,9 +167,7 @@ void setup() {
 
 void loop() {
     unsigned long currentMillis = millis();
-    if (mqttConnected && (currentMillis - lastPublishTime > 30000)) {
-        lastPublishTime = currentMillis;
-        
+    if (mqttConnected && ((currentMillis - lastPublishTime > STATUS_DELAY) || lastPublishTime == 0)) {
         // String payload = "Hello from ESP32-C6 native asynchronous WSS!";
         struct tm timeinfo;
         if (!getLocalTime(&timeinfo)) {
@@ -185,10 +185,14 @@ void loop() {
                 timeinfo.tm_min,
                 timeinfo.tm_sec);
         String payload = "ESP32-C6," + globalDeviceId + "," + String(timeBuffer) + "," + String(currentMillis);
+        if(lastPublishTime == 0) {
+            payload += ",boot";
+        }
         Serial.printf("[STATUS]  Publishing message: '%s'\n", payload.c_str());
         
         // Publish through native stack
         esp_mqtt_client_publish(client, mqtt_topic, payload.c_str(), 0, 1, 0);
+        lastPublishTime = currentMillis;
     }
     
     delay(10); // Yield to prevent watchdog starving
