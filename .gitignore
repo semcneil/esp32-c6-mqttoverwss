@@ -1,4 +1,5 @@
 src/secrets.h
+.DS_Store
 *.pem
 .pio
 .vscode
