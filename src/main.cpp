@@ -18,6 +18,7 @@
 // Allocate an 8-byte array for the EUI-64 / IEEE 802.15.4 ID
 uint8_t mac8[8];
 String globalDeviceId = "ID NOT SET";
+String moduleName = MOD_NAME;
 
 // --- CONFIGURATION ---
 const char* ssid     = SSID;
@@ -139,7 +140,9 @@ void setup() {
     // Authentication parameters
     mqtt_cfg.credentials.username = mqtt_user;
     mqtt_cfg.credentials.authentication.password = mqtt_pass;
-    mqtt_cfg.credentials.client_id = "esp32_c6_mqtt_client_01";
+    char client_id[40];
+    snprintf(client_id, sizeof(client_id), "esp32_c6_%s", globalDeviceId.c_str());
+    mqtt_cfg.credentials.client_id = client_id;
     
     // Security and Certificate Verification
     // Attach the built-in root CA bundle so it trusts Cloudflare's certificates
