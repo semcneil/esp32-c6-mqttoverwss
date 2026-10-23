@@ -16,7 +16,6 @@
 
 #include "secrets.h"
 
-#define STATUS_DELAY 300000  // delay between sending status messages
 
 // Allocate an 8-byte array for the EUI-64 / IEEE 802.15.4 ID
 uint8_t mac8[8];
@@ -212,7 +211,7 @@ void loop() {
         doc["Beep"] = 1;
         doc["ModName"] = modName;
         doc["MAC"] = globalDeviceId;
-            String myJSON;
+        String myJSON;
         serializeJson(doc, myJSON);
         Serial.printf("[STATUS]  Publishing message: '%s'\n", myJSON.c_str());
         
@@ -226,6 +225,8 @@ void loop() {
     if (mqttConnected && ((currentMillis - lastPublishTime > STATUS_DELAY) || lastPublishTime == 0)) {
         display.fillScreen(TFT_RED);
         JsonDocument doc;
+        float chargeLevel = battery.getChargeLevel();
+        float batteryVoltage = battery.getVoltage();
         struct tm timeinfo;
         if (!getLocalTime(&timeinfo)) {
             Serial.println("Failed to obtain time");
@@ -243,6 +244,8 @@ void loop() {
         doc["MAC"] = globalDeviceId;
         doc["DateTime"] = String(timeBuffer);
         doc["millis"] = currentMillis;
+        doc["batVolt"] = batteryVoltage;
+        doc["batPct"] = chargeLevel;
         // String payload = "ESP32-C6," + globalDeviceId + "," + String(timeBuffer) + "," + String(currentMillis);
         if(lastPublishTime == 0) {
             doc["boot"] = true;
