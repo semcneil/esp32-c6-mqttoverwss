@@ -10,6 +10,7 @@
 #include "time.h"
 #include <esp_crt_bundle.h>
 #include <esp_mac.h>  // to get the full 8-byte MAC address
+#include <ArduinoJson.h>        // JSON processing library
 
 #include "secrets.h"
 
@@ -171,14 +172,12 @@ void setup() {
 void loop() {
     unsigned long currentMillis = millis();
     if (mqttConnected && ((currentMillis - lastPublishTime > STATUS_DELAY) || lastPublishTime == 0)) {
-        // String payload = "Hello from ESP32-C6 native asynchronous WSS!";
+        JsonDocument doc;
         struct tm timeinfo;
         if (!getLocalTime(&timeinfo)) {
             Serial.println("Failed to obtain time");
         }
-
         char timeBuffer[20];
-        
         // tm_year is years since 1900, tm_mon is 0-indexed (0 = January)
         sprintf(timeBuffer, "%04d-%02d-%02d %02d:%02d:%02d",
                 timeinfo.tm_year + 1900,
@@ -187,14 +186,20 @@ void loop() {
                 timeinfo.tm_hour,
                 timeinfo.tm_min,
                 timeinfo.tm_sec);
+        doc["ModName"] = moduleName;
+        doc["MAC"] = globalDeviceId;
+        doc["DateTime"] = String(timeBuffer);
+        doc["millis"] = currentMillis;
         String payload = "ESP32-C6," + globalDeviceId + "," + String(timeBuffer) + "," + String(currentMillis);
         if(lastPublishTime == 0) {
-            payload += ",boot";
+            doc["boot"] = true;
         }
-        Serial.printf("[STATUS]  Publishing message: '%s'\n", payload.c_str());
+        String myJSON;
+        serializeJson(doc, myJSON);
+        Serial.printf("[STATUS]  Publishing message: '%s'\n", myJSON.c_str());
         
         // Publish through native stack
-        esp_mqtt_client_publish(client, mqtt_topic, payload.c_str(), 0, 1, 0);
+        esp_mqtt_client_publish(client, mqtt_topic, myJSON.c_str(), 0, 1, 0);
         lastPublishTime = currentMillis;
     }
     
