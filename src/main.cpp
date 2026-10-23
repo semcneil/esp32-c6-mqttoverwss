@@ -5,6 +5,8 @@
   2026 August 17
 */
 
+#include <Arduino.h>
+#include <Arduino_Nesso_N1.h>
 #include <WiFi.h>
 #include "mqtt_client.h" // Native Espressif MQTT framework
 #include "time.h"
@@ -19,7 +21,7 @@
 // Allocate an 8-byte array for the EUI-64 / IEEE 802.15.4 ID
 uint8_t mac8[8];
 String globalDeviceId = "ID NOT SET";
-String moduleName = MOD_NAME;
+String modName = MOD_NAME;
 
 // --- CONFIGURATION ---
 const char* ssid     = SSID;
@@ -34,6 +36,18 @@ const char* mqtt_topic = MQTT_TOPIC;
 const char* mqtt_user = MQTT_USER;
 const char* mqtt_pass = MQTT_PWD;
 
+// --- NESSO N1 ---
+NessoBattery battery;
+NessoDisplay display;
+LGFX_Sprite statusSprite(&display);
+
+const int DISPLAY_WIDTH = 240;
+const int DISPLAY_HEIGHT = 135;
+const uint16_t COLOR_TEAL = 0x0410;
+const uint16_t COLOR_BLACK = 0x0000;
+const uint16_t COLOR_GREEN = 0x1e85;
+const uint16_t COLOR_RED = 0xf800;
+
 // --- GLOBAL OBJECTS ---
 esp_mqtt_client_handle_t client;
 unsigned long lastPublishTime = 0;
@@ -42,6 +56,7 @@ bool mqttConnected = false;
 // --- NATIVE ESPRESSIF MQTT EVENT HANDLER ---
 static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
     auto event = (esp_mqtt_event_handle_t)event_data;
+    String eventMsg;
     switch ((esp_mqtt_event_id_t)event_id) {
         case MQTT_EVENT_CONNECTED:
             Serial.println("\n[SUCCESS] Native MQTT Connected over WSS Layer!");
@@ -61,6 +76,10 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
             Serial.printf("Topic:   %.*s\n", event->topic_len, event->topic);
             Serial.printf("Payload: %.*s\n", event->data_len, event->data);
             Serial.println("----------------------------\n");
+            eventMsg = String(event->data);
+            if(eventMsg.indexOf("Beep") >= 0) {
+                tone(BEEP_PIN, 750, 500);
+            }
             break;
             
         case MQTT_EVENT_ERROR:
@@ -95,6 +114,17 @@ String getUniqueIdString() {
 
 void setup() {
     Serial.begin(115200);
+    display.begin();
+
+    battery.begin();
+    battery.enableCharge();
+    display.setRotation(1);
+    display.setEpdMode(epd_mode_t::epd_fastest);
+
+    display.fillScreen(TFT_WHITE);
+    display.setTextColor(COLOR_TEAL);
+    display.setTextSize(4);
+    display.drawString(modName, 6, 11);
     delay(2000);
 
     globalDeviceId = getUniqueIdString();
@@ -108,6 +138,7 @@ void setup() {
         Serial.print(".");
     }
     Serial.println("\n[SUCCESS] Wi-Fi Connected!");
+    display.drawString("WiFi Good", 6, 52);
 
     // 2. Sync System Clock via NTP
     Serial.println("[STATUS]  Syncing time with NTP server...");
@@ -167,11 +198,33 @@ void setup() {
     // Fire up the asynchronous networking thread
     Serial.println("[STATUS]  Starting background WSS connection thread...");
     esp_mqtt_client_start(client);
+    display.drawString("MQTT Good", 6, 85);
 }
 
 void loop() {
     unsigned long currentMillis = millis();
+    static bool lastYelBtn = true;
+    bool curYelBtn = digitalRead(KEY1);
+
+    if(!curYelBtn && (curYelBtn != lastYelBtn)) {
+        Serial.println("Yellow button pressed");
+        JsonDocument doc;
+        doc["Beep"] = 1;
+        doc["ModName"] = modName;
+        doc["MAC"] = globalDeviceId;
+            String myJSON;
+        serializeJson(doc, myJSON);
+        Serial.printf("[STATUS]  Publishing message: '%s'\n", myJSON.c_str());
+        
+        // Publish through native stack
+        esp_mqtt_client_publish(client, mqtt_topic, myJSON.c_str(), 0, 1, 0);
+        display.fillScreen(TFT_YELLOW);
+        display.setTextColor(COLOR_RED);
+        display.setTextSize(4);
+        display.drawString("Sent Beep", 6, 11);
+    }
     if (mqttConnected && ((currentMillis - lastPublishTime > STATUS_DELAY) || lastPublishTime == 0)) {
+        display.fillScreen(TFT_RED);
         JsonDocument doc;
         struct tm timeinfo;
         if (!getLocalTime(&timeinfo)) {
@@ -186,11 +239,11 @@ void loop() {
                 timeinfo.tm_hour,
                 timeinfo.tm_min,
                 timeinfo.tm_sec);
-        doc["ModName"] = moduleName;
+        doc["ModName"] = modName;
         doc["MAC"] = globalDeviceId;
         doc["DateTime"] = String(timeBuffer);
         doc["millis"] = currentMillis;
-        String payload = "ESP32-C6," + globalDeviceId + "," + String(timeBuffer) + "," + String(currentMillis);
+        // String payload = "ESP32-C6," + globalDeviceId + "," + String(timeBuffer) + "," + String(currentMillis);
         if(lastPublishTime == 0) {
             doc["boot"] = true;
         }
@@ -200,8 +253,15 @@ void loop() {
         
         // Publish through native stack
         esp_mqtt_client_publish(client, mqtt_topic, myJSON.c_str(), 0, 1, 0);
+        display.fillScreen(TFT_WHITE);
+        display.setTextColor(COLOR_BLACK);
+        display.setTextSize(4);
+        display.drawString("Sent Msg", 6, 11);
+        display.setTextSize(2);
+        display.drawString(timeBuffer, 6, 52);
         lastPublishTime = currentMillis;
     }
     
+    lastYelBtn = curYelBtn;
     delay(10); // Yield to prevent watchdog starving
 }
